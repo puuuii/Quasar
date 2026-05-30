@@ -6,8 +6,10 @@
 
 - 取り込み層
   - NATS JetStream
-  - ストリーミング層
+- ストリーミング層
   - RisingWave
+    - ストレージ
+      - SeaweedFS
 - バッチ層
   - RisingWave（バッチクエリ）
   - dbt（バッチ変換）
