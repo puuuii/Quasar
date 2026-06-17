@@ -1,0 +1,14 @@
+config:
+  jetstream:
+    enabled: true
+    # dev環境なのでファイル永続化のストレージサイズ等を小さめに制限可能
+    maxMemory: 1Gi
+    maxStore: 10Gi
+
+cluster:
+  enabled: false # devなのでクラスタリングは無効
+
+replicas: 1 # devなので1レプリカ
+
+k8sControlLoop:
+  enabled: true

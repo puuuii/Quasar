@@ -1,0 +1,12 @@
+apiVersion: jetstream.nats.io/v1beta2
+kind: Stream
+metadata:
+  name: quasar-stream
+  namespace: quasar
+spec:
+  name: TEST_STREAM
+  subjects:
+    - "tests.*"
+  storage: file # JetStreamのデータ永続化
+  replicas: 1
+  retention: limits
