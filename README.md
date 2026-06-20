@@ -86,5 +86,5 @@ psql -h localhost -p 4567 -d dev -U root -c "CREATE MATERIALIZED VIEW mv_nats_te
 ```
 4. （動作確認）データの問い合わせ
 ```bash
-psql -h localhost -p 4567 -d dev -U root -c "SELECT * FROM mv_nats_tests;"
+psql -h localhost -p 4567 -d dev -U root -c "SELECT * FROM mv_nats_tests LIMIT 10;"
 ```
