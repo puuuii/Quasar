@@ -1,0 +1,19 @@
+stateStore:
+  type: s3
+  s3:
+    enabled: true
+    bucket: "risingwave-bucket"
+    endpoint: "http://seaweedfs-s3.quasar.svc.cluster.local:8333"
+    region: "us-east-1"
+    authentication:
+      useServiceAccount: false
+      accessKey: "seaweedfs_rw_access"
+      secretAccessKey: "seaweedfs_rw_secret"
+    forcePathStyle: true
+
+minio:
+  enabled: false
+
+tags:
+  minio: false
+  postgresql: true

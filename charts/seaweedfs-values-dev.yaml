@@ -1,0 +1,14 @@
+s3:
+  enabled: true
+  logs:
+    accessKey: "seaweedfs_rw_access"
+    secretKey: "seaweedfs_rw_secret"
+  createBuckets:
+    - name: "risingwave-bucket"
+
+master:
+  replicas: 1
+volume:
+  replicas: 1
+filer:
+  replicas: 1
