@@ -35,12 +35,12 @@ just setup-risingwave
 ## nats -> risingwaveの接続確認
 
 ```bash
-test-connection-nats-to-risingwave
+just test-connection-nats-to-risingwave
 ```
 
 ## Iceberg Rest Catalog構築手順
 
 1. 構築
 ```bash
-kubectl apply -n quasar  -f ./manifests/iceberg-dev.yaml 
+just setup-iceberg
 ```

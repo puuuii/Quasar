@@ -106,3 +106,6 @@ test-connection-nats-to-risingwave:
 
     echo "=== 4. Querying Data from Materialized View ==="
     psql -h localhost -p 4567 -d dev -U root -c "SELECT * FROM mv_nats_tests LIMIT 10;"
+
+setup-iceberg:
+    kubectl apply -n quasar  -f ./manifests/iceberg-dev.yaml
