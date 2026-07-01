@@ -44,3 +44,28 @@ just test-connection-nats-to-risingwave
 ```bash
 just setup-iceberg
 ```
+
+2. REST Catalogをローカルに公開
+```bash
+just port-forward-iceberg
+```
+
+3. Warehouse / Namespace を初期化
+```bash
+just setup-iceberg-environment
+```
+
+4. RisingWave から Iceberg Sink を作成
+```bash
+just setup-iceberg-pipeline
+```
+
+5. NATS にデータを流し込む
+```bash
+just publish-nats
+```
+
+6. Iceberg テーブルを直接確認
+```bash
+just query-iceberg
+```
