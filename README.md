@@ -60,12 +60,17 @@ just setup-iceberg-environment
 just setup-iceberg-pipeline
 ```
 
-5. NATS にデータを流し込む
+5. RisingWave のバッチクエリ用に Iceberg 外部テーブルを作成
+```bash
+just setup-iceberg-batch-query
+```
+
+6. NATS にデータを流し込む
 ```bash
 just publish-nats
 ```
 
-6. Iceberg テーブルを直接確認
+7. RisingWave のバッチ機能で Iceberg テーブルを確認
 ```bash
 just query-iceberg
 ```

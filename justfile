@@ -222,24 +222,30 @@ setup-iceberg-environment:
     fi
     echo ""
 
-# RisingWaveにIceberg SinkとSourceを作成
+# RisingWaveにIceberg Sinkを作成
 setup-iceberg-pipeline:
     #!/usr/bin/env bash
     set -euo pipefail
     echo "=== Creating RisingWave Iceberg Sink ==="
     psql -h localhost -p 4567 -d dev -U root -f ./sql/create_iceberg_sink.sql
 
-    echo "=== Creating RisingWave Iceberg Source ==="
-    psql -h localhost -p 4567 -d dev -U root -f ./sql/create_iceberg_source.sql
+# RisingWaveのバッチクエリ用にIceberg外部テーブルを作成
+setup-iceberg-batch-query:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "=== Creating RisingWave Iceberg Batch Table ==="
+    psql -h localhost -p 4567 -d dev -U root -f ./sql/create_iceberg_batch_table.sql
 
 # NATSへのメッセージ送信ループ起動
 publish-nats:
     chmod +x ./scripts/publish_nats.sh
     ./scripts/publish_nats.sh
 
-# Icebergからデータ参照確認
+# RisingWaveのバッチ機能でIcebergテーブルを参照確認
 query-iceberg:
     #!/usr/bin/env bash
     set -euo pipefail
-    echo "=== Querying Data from Iceberg Source ==="
-    psql -h localhost -p 4567 -d dev -U root -c "SELECT * FROM iceberg_demo_source LIMIT 10;"
+    echo "=== Refreshing RisingWave Iceberg Batch Table ==="
+    psql -h localhost -p 4567 -d dev -U root -c "REFRESH TABLE iceberg_demo_batch;"
+    echo "=== Querying Data from Iceberg Table via RisingWave Batch Table ==="
+    psql -h localhost -p 4567 -d dev -U root -c "SELECT * FROM iceberg_demo_batch LIMIT 10;"
