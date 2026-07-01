@@ -8,37 +8,45 @@
 - クェーサーが吸い込み切れなかった物質を宇宙ジェットとして噴出するように、抑えきれないデータという価値を放ちたい
 - クェーサーが宇宙の測量のための灯台であるように、組織内のシングル・ソース・オブ・トゥルース（SSOT）でありたい
 
+## 設定確認
+
+```bash
+just show-config
+```
+
 ## クリーンアップ・リセット
 
 ```bash
 just recreate-cluster
 ```
 
-## NATS JetStreamの構築
+## コア基盤をまとめて構築
+
+```bash
+just core-up
+```
+
+個別に実行する場合:
 
 ```bash
 just setup-nats
-```
-
-## SeaweedFSの構築
-
-```bash
 just setup-seaweedfs
-```
-
-## RisingWaveの構築手順
-
-```bash
 just setup-risingwave
 ```
 
-## nats -> risingwaveの接続確認
+## Iceberg 系をまとめて構築
 
 ```bash
-just test-connection-nats-to-risingwave
+just iceberg-up
 ```
 
-## Iceberg Rest Catalog構築手順
+全体をまとめて上げる場合:
+
+```bash
+just platform-up
+```
+
+個別に実行する場合:
 
 1. 構築
 ```bash
@@ -50,27 +58,58 @@ just setup-iceberg
 just port-forward-iceberg
 ```
 
-3. Warehouse / Namespace を初期化
+3. SeaweedFS S3をローカルに公開
+```bash
+just port-forward-seaweedfs-s3
+```
+
+4. Warehouse / Namespace を初期化
 ```bash
 just setup-iceberg-environment
 ```
 
-4. RisingWave から Iceberg Sink を作成
+5. RisingWave Source / Iceberg Sink を作成
 ```bash
+just setup-risingwave-source
 just setup-iceberg-pipeline
 ```
 
-5. RisingWave のバッチクエリ用に Iceberg 外部テーブルを作成
+## nats -> risingwave の疎通確認
+
 ```bash
-just setup-iceberg-batch-query
+just test-connection-nats-to-risingwave
 ```
 
-6. NATS にデータを流し込む
+## NATS に1件だけ流し込む
+
+```bash
+just ingest-once "hello from quasar"
+```
+
+## NATS に継続投入する
+
 ```bash
 just publish-nats
 ```
 
-7. RisingWave のバッチ機能で Iceberg テーブルを確認
+## DuckDB で Iceberg テーブルを確認
+
+ポートフォワード込みで実行する場合:
+
 ```bash
-just query-iceberg
+just query-iceberg-ready 20
+```
+
+すでに公開済みなら、件数だけ指定できます:
+
+```bash
+just query-iceberg 20
+```
+
+対象も変えたい場合は custom recipe を使います:
+
+```bash
+just query-iceberg-custom demo_db demo_table demo 20
+just publish-nats-custom tests.demo 5 "Hello RisingWave!" 1
+just ingest-once-custom 42 tests.demo "hello from quasar" "2026-07-01 00:00:00"
 ```
