@@ -19,7 +19,7 @@
     - ストレージ
       - SeaweedFS
 - BI層
-  - Evidence
+  - [Rill](https://github.com/rilldata/rill)
 
 ## インフラストラクチャ
 
