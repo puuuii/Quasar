@@ -1,7 +1,8 @@
 DROP SINK IF EXISTS nats_to_iceberg_sink;
 
+-- MV経由で消費する: 同一ソースを複数ジョブが直接参照するとNATS consumer(durable)が複数に分裂し、メッセージが片方にだけ届くため
 CREATE SINK IF NOT EXISTS nats_to_iceberg_sink
-FROM nats_tests_source
+FROM mv_nats_tests
 WITH (
     connector = 'iceberg',
     type = 'append-only',
