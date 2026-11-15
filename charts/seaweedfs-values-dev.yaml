@@ -1,14 +1,19 @@
-s3:
-  enabled: true
-  logs:
-    accessKey: "seaweedfs_rw_access"
-    secretKey: "seaweedfs_rw_secret"
-  createBuckets:
-    - name: "risingwave-bucket"
-    - name: "iceberg-bucket"
 master:
   replicas: 1
 volume:
   replicas: 1
 filer:
   replicas: 1
+
+s3:
+  enabled: true
+  enableAuth: true
+  # SeaweedFS組み込みのIceberg REST Catalogを有効化（Service seaweedfs-s3 から8181で公開）
+  icebergPort: 8181
+  credentials:
+    admin:
+      accessKey: "seaweedfs_rw_access"
+      secretKey: "seaweedfs_rw_secret"
+  # 通常バケットのみ。Iceberg用のテーブルバケット(iceberg-bucket)は setup_iceberg_environment.sh で作成する
+  createBuckets:
+    - name: "risingwave-bucket"

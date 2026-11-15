@@ -8,15 +8,14 @@ risingwave_port := "4567"
 risingwave_db := "dev"
 risingwave_user := "root"
 
-catalog_management_url := "http://127.0.0.1:8181"
-catalog_url := "http://127.0.0.1:8181/catalog"
-s3_endpoint := "http://127.0.0.1:8333"
-s3_service_endpoint := "http://seaweedfs-s3.quasar.svc.cluster.local:8333"
+catalog_url := "http://127.0.0.1:8181"
+# DuckDBのS3 secret用（スキームなし）
+s3_endpoint := "127.0.0.1:8333"
 s3_region := "us-east-1"
 s3_access_key := "seaweedfs_rw_access"
 s3_secret_key := "seaweedfs_rw_secret"
 
-warehouse := "demo"
+table_bucket := "iceberg-bucket"
 iceberg_namespace := "demo_db"
 iceberg_table := "demo_table"
 
@@ -34,7 +33,7 @@ show-config:
     @echo "risingwave={{risingwave_user}}@{{risingwave_host}}:{{risingwave_port}}/{{risingwave_db}}"
     @echo "catalog_url={{catalog_url}}"
     @echo "s3_endpoint={{s3_endpoint}}"
-    @echo "warehouse={{warehouse}}"
+    @echo "table_bucket={{table_bucket}}"
     @echo "iceberg_table={{iceberg_namespace}}.{{iceberg_table}}"
     @echo "nats_subject={{nats_subject}}"
 
@@ -45,7 +44,7 @@ recreate-cluster:
 
 setup-nats:
     helm repo add nats https://nats-io.github.io/k8s/helm/charts/ --force-update
-    helm repo update
+    helm repo update nats
     helm install nats nats/nats -n {{namespace}} -f charts/nats-values-dev.yaml --create-namespace --wait --timeout 2m
     helm install nack nats/nack -n {{namespace}} -f charts/nack-values-dev.yaml --wait --timeout 2m
     kubectl apply -f manifests/nats.yaml
@@ -55,13 +54,14 @@ setup-nats:
 
 setup-seaweedfs:
     helm repo add seaweedfs https://seaweedfs.github.io/seaweedfs/helm --force-update
-    helm repo update
-    helm install seaweedfs seaweedfs/seaweedfs -n {{namespace}} -f charts/seaweedfs-values-dev.yaml
+    helm repo update seaweedfs
+    helm install seaweedfs seaweedfs/seaweedfs -n {{namespace}} -f charts/seaweedfs-values-dev.yaml --wait --timeout 5m
     kubectl get pods -n {{namespace}}
+    kubectl get svc seaweedfs-s3 -n {{namespace}}
 
 setup-risingwave:
     helm repo add risingwavelabs https://risingwavelabs.github.io/helm-charts/ --force-update
-    helm repo update
+    helm repo update risingwavelabs
     helm install risingwave risingwavelabs/risingwave -n {{namespace}} -f charts/risingwave-values-dev.yaml --create-namespace --wait --timeout 5m
     kubectl port-forward -n {{namespace}} svc/risingwave 4567:4567 &>/dev/null &
     sleep 2
@@ -78,13 +78,8 @@ test-connection-nats-to-risingwave: setup-risingwave-source
     sleep 2
     psql -h {{risingwave_host}} -p {{risingwave_port}} -d {{risingwave_db}} -U {{risingwave_user}} -f ./sql/query_mv_nats_tests.sql
 
-setup-iceberg:
-    kubectl apply -n {{namespace}} -f ./manifests/iceberg-dev.yaml
-    kubectl wait -n {{namespace}} --for=condition=Ready pod -l app=iceberg-catalog-db --timeout=2m
-    kubectl wait -n {{namespace}} --for=condition=Ready pod -l app=iceberg-rest-catalog --timeout=2m
-
 port-forward-iceberg:
-    kubectl port-forward -n {{namespace}} svc/iceberg-rest-catalog 8181:8181 &>/dev/null &
+    kubectl port-forward -n {{namespace}} svc/seaweedfs-s3 8181:8181 &>/dev/null &
     sleep 2
     ps aux | grep "kubectl port-forward" | grep "8181:8181" | grep -v grep
 
@@ -96,11 +91,10 @@ port-forward-seaweedfs-s3:
 expose-iceberg: port-forward-iceberg port-forward-seaweedfs-s3
 
 setup-iceberg-environment:
-    CATALOG_MANAGEMENT_URL={{catalog_management_url}} \
+    NAMESPACE={{namespace}} \
     CATALOG_URL={{catalog_url}} \
-    WAREHOUSE={{warehouse}} \
+    TABLE_BUCKET={{table_bucket}} \
     ICEBERG_NAMESPACE={{iceberg_namespace}} \
-    S3_SERVICE_ENDPOINT={{s3_service_endpoint}} \
     S3_REGION={{s3_region}} \
     S3_ACCESS_KEY={{s3_access_key}} \
     S3_SECRET_KEY={{s3_secret_key}} \
@@ -111,7 +105,7 @@ setup-iceberg-pipeline: setup-risingwave-source
 
 core-up: setup-nats setup-seaweedfs setup-risingwave
 
-iceberg-up: setup-iceberg expose-iceberg setup-iceberg-environment setup-iceberg-pipeline
+iceberg-up: expose-iceberg setup-iceberg-environment setup-iceberg-pipeline
 
 platform-up: core-up iceberg-up
 
@@ -155,13 +149,13 @@ query-iceberg limit=default_limit:
         -e 's#__S3_REGION__#{{s3_region}}#g' \
         -e 's#__S3_ACCESS_KEY__#{{s3_access_key}}#g' \
         -e 's#__S3_SECRET_KEY__#{{s3_secret_key}}#g' \
-        -e 's#__ICEBERG_WAREHOUSE__#{{warehouse}}#g' \
+        -e 's#__TABLE_BUCKET__#{{table_bucket}}#g' \
         -e 's#__ICEBERG_NAMESPACE__#{{iceberg_namespace}}#g' \
         -e 's#__ICEBERG_TABLE__#{{iceberg_table}}#g' \
         -e 's#__QUERY_LIMIT__#{{limit}}#g' \
         ./sql/query_iceberg.duckdb.sql | uv tool run --from duckdb-cli duckdb
 
-query-iceberg-custom namespace_name=iceberg_namespace table=iceberg_table warehouse_name=warehouse limit=default_limit:
+query-iceberg-custom namespace_name=iceberg_namespace table=iceberg_table table_bucket_name=table_bucket limit=default_limit:
     echo "=== Querying Data from Iceberg Table via DuckDB ==="
     sed \
         -e 's#__CATALOG_URL__#{{catalog_url}}#g' \
@@ -169,7 +163,7 @@ query-iceberg-custom namespace_name=iceberg_namespace table=iceberg_table wareho
         -e 's#__S3_REGION__#{{s3_region}}#g' \
         -e 's#__S3_ACCESS_KEY__#{{s3_access_key}}#g' \
         -e 's#__S3_SECRET_KEY__#{{s3_secret_key}}#g' \
-        -e 's#__ICEBERG_WAREHOUSE__#{{warehouse_name}}#g' \
+        -e 's#__TABLE_BUCKET__#{{table_bucket_name}}#g' \
         -e 's#__ICEBERG_NAMESPACE__#{{namespace_name}}#g' \
         -e 's#__ICEBERG_TABLE__#{{table}}#g' \
         -e 's#__QUERY_LIMIT__#{{limit}}#g' \

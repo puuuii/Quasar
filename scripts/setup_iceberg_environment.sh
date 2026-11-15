@@ -1,98 +1,60 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-CATALOG_MANAGEMENT_URL="${CATALOG_MANAGEMENT_URL:-http://localhost:8181}"
-CATALOG_URL="${CATALOG_URL:-http://localhost:8181/catalog}"
-WAREHOUSE="${WAREHOUSE:-demo}"
+NAMESPACE="${NAMESPACE:-quasar}"
+CATALOG_URL="${CATALOG_URL:-http://localhost:8181}"
+TABLE_BUCKET="${TABLE_BUCKET:-iceberg-bucket}"
 ICEBERG_NAMESPACE="${ICEBERG_NAMESPACE:-demo_db}"
-S3_SERVICE_ENDPOINT="${S3_SERVICE_ENDPOINT:-http://seaweedfs-s3.quasar.svc.cluster.local:8333}"
 S3_REGION="${S3_REGION:-us-east-1}"
 S3_ACCESS_KEY="${S3_ACCESS_KEY:-seaweedfs_rw_access}"
 S3_SECRET_KEY="${S3_SECRET_KEY:-seaweedfs_rw_secret}"
 
-echo "=== 0. Bootstrapping Lakekeeper ==="
-BOOTSTRAP_RESP=$(curl -s -w "\n%{http_code}" -X POST "$CATALOG_MANAGEMENT_URL/management/v1/bootstrap" \
-  -H "Content-Type: application/json" \
-  -d '{"accept-terms-of-use": true}')
+echo "=== 1. Creating Table Bucket '$TABLE_BUCKET' in SeaweedFS ==="
+MASTER_POD=$(kubectl get pods -n "$NAMESPACE" \
+  -l app.kubernetes.io/name=seaweedfs,app.kubernetes.io/component=master \
+  -o jsonpath='{.items[0].metadata.name}')
 
-BOOTSTRAP_STATUS=$(echo "$BOOTSTRAP_RESP" | tail -n1)
-BOOTSTRAP_BODY=$(echo "$BOOTSTRAP_RESP" | sed '$d')
+run_weed_shell() {
+  echo "$1" | kubectl exec -i -n "$NAMESPACE" "$MASTER_POD" -- weed shell -master=localhost:9333
+}
 
-if [ "$BOOTSTRAP_STATUS" -eq 200 ] || [ "$BOOTSTRAP_STATUS" -eq 204 ]; then
-  echo "Lakekeeper bootstrapped successfully."
-elif echo "$BOOTSTRAP_BODY" | grep -q "CatalogAlreadyBootstrapped"; then
-  echo "Lakekeeper is already bootstrapped."
+EXISTING_BUCKETS=$(run_weed_shell "s3tables.bucket -list" 2>&1 || true)
+if grep -qw -- "$TABLE_BUCKET" <<<"$EXISTING_BUCKETS"; then
+  echo "Table Bucket '$TABLE_BUCKET' already exists."
 else
-  echo "Failed to bootstrap Lakekeeper (Status: $BOOTSTRAP_STATUS):"
-  echo "$BOOTSTRAP_BODY"
-  exit 1
+  run_weed_shell "s3tables.bucket -create -name $TABLE_BUCKET -account 000000000000"
+  echo "Table Bucket '$TABLE_BUCKET' created."
 fi
 echo ""
 
-echo "=== 1. Creating/Retrieving Warehouse '$WAREHOUSE' in Lakekeeper ==="
-WAREHOUSE_ID=$(curl -s "$CATALOG_MANAGEMENT_URL/management/v1/warehouse" | WAREHOUSE="$WAREHOUSE" python3 -c "import os, sys, json; target = os.environ['WAREHOUSE']; data = json.load(sys.stdin); print(next((w.get('id') or w.get('warehouse-id') for w in data.get('warehouses', []) if w.get('name') == target), ''))")
+echo "=== 2. Creating Namespace '$ICEBERG_NAMESPACE' via Iceberg REST Catalog ==="
+RESP_FILE=$(mktemp)
+trap 'rm -f "$RESP_FILE"' EXIT
 
-if [ -n "$WAREHOUSE_ID" ]; then
-  echo "Warehouse '$WAREHOUSE' already exists (ID: $WAREHOUSE_ID)."
-else
-  echo "Creating Warehouse '$WAREHOUSE'..."
-  CREATE_RESP=$(curl -s -w "\n%{http_code}" -X POST "$CATALOG_MANAGEMENT_URL/management/v1/warehouse" \
+STATUS="000"
+for attempt in 1 2 3 4 5; do
+  STATUS=$(curl -s -o "$RESP_FILE" -w "%{http_code}" -X POST "$CATALOG_URL/v1/$TABLE_BUCKET/namespaces" \
+    --aws-sigv4 "aws:amz:$S3_REGION:s3" \
+    --user "$S3_ACCESS_KEY:$S3_SECRET_KEY" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"warehouse-name\": \"$WAREHOUSE\",
-      \"storage-profile\": {
-        \"type\": \"s3\",
-        \"bucket\": \"iceberg-bucket\",
-        \"region\": \"$S3_REGION\",
-        \"endpoint\": \"$S3_SERVICE_ENDPOINT\",
-        \"path-style-access\": true,
-        \"flavor\": \"s3-compat\",
-        \"sts-enabled\": false
-      },
-      \"storage-credential\": {
-        \"type\": \"s3\",
-        \"credential-type\": \"access-key\",
-        \"aws-access-key-id\": \"$S3_ACCESS_KEY\",
-        \"aws-secret-access-key\": \"$S3_SECRET_KEY\"
-      }
-    }")
-  CREATE_STATUS=$(echo "$CREATE_RESP" | tail -n1)
-  CREATE_BODY=$(echo "$CREATE_RESP" | sed '$d')
+    -d "{\"namespace\": [\"$ICEBERG_NAMESPACE\"]}" || true)
+  [ "$STATUS" != "000" ] && break
+  echo "Catalog not reachable yet (attempt $attempt/5), retrying..."
+  sleep 3
+done
 
-  if [ "$CREATE_STATUS" -eq 200 ] || [ "$CREATE_STATUS" -eq 201 ]; then
-    WAREHOUSE_ID=$(echo "$CREATE_BODY" | python3 -c "import sys, json; data = json.load(sys.stdin); print(data.get('id') or data.get('warehouse-id') or '')")
-    if [ -z "$WAREHOUSE_ID" ]; then
-      echo "Failed to parse Warehouse ID from creation response: $CREATE_BODY"
-      exit 1
-    fi
-    echo "Warehouse '$WAREHOUSE' created successfully (ID: $WAREHOUSE_ID)."
-  else
-    echo "Failed to create warehouse (Status: $CREATE_STATUS):"
-    echo "$CREATE_BODY"
-    exit 1
-  fi
-fi
-echo ""
-
-echo "=== 2. Creating Namespace '$ICEBERG_NAMESPACE' in '$WAREHOUSE' Warehouse ==="
-NS_EXISTS=$(curl -s "$CATALOG_URL/v1/$WAREHOUSE_ID/namespaces" | ICEBERG_NAMESPACE="$ICEBERG_NAMESPACE" python3 -c "import os, sys, json; target = os.environ['ICEBERG_NAMESPACE']; data = json.load(sys.stdin); print('true' if any(target in ns for ns in data.get('namespaces', [])) else 'false')")
-
-if [ "$NS_EXISTS" = "true" ]; then
-  echo "Namespace '$ICEBERG_NAMESPACE' already exists in Warehouse '$WAREHOUSE'."
-else
-  echo "Creating Namespace '$ICEBERG_NAMESPACE'..."
-  NS_RESP=$(curl -s -w "\n%{http_code}" -X POST "$CATALOG_URL/v1/$WAREHOUSE_ID/namespaces" \
-    -H "Content-Type: application/json" \
-    -d "{\"namespace\": [\"$ICEBERG_NAMESPACE\"]}")
-  NS_STATUS=$(echo "$NS_RESP" | tail -n1)
-  NS_BODY=$(echo "$NS_RESP" | sed '$d')
-
-  if [ "$NS_STATUS" -eq 200 ] || [ "$NS_STATUS" -eq 201 ]; then
+case "$STATUS" in
+  200|201)
     echo "Namespace '$ICEBERG_NAMESPACE' created successfully."
-  else
-    echo "Failed to create namespace (Status: $NS_STATUS):"
-    echo "$NS_BODY"
+    ;;
+  409)
+    echo "Namespace '$ICEBERG_NAMESPACE' already exists."
+    ;;
+  *)
+    echo "Failed to create namespace (Status: $STATUS):"
+    cat "$RESP_FILE"
+    echo ""
     exit 1
-  fi
-fi
+    ;;
+esac
 echo ""

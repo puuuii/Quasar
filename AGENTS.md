@@ -14,10 +14,10 @@
   - RisingWave（バッチクエリ）
   - dbt（バッチ変換）
   - Iceberg（テーブルフォーマット）
-    - カタログ
-      - iceberg-catalog（Rust + PostgreSQL）
     - ストレージ
       - SeaweedFS
+    - カタログ
+      - SeaweedFS 組み込みカタログ
 - BI層
   - [Rill](https://github.com/rilldata/rill)
 
